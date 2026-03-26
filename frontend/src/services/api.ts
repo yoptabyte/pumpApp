@@ -108,7 +108,7 @@ export const updatePost = (id: number, data: FormData) => api.patch(`/posts/${id
 export const deletePost = (id: number) => api.delete(`/posts/${id}/`);
 
 export const register = (data: RegisterRequest) =>
-  api.post<{ user: AuthUser }>('/register/', data);
+  api.post<{ detail: string; user: AuthUser }>('/register/', data);
 
 export const login = (data: LoginRequest) =>
   api.post<{ user: AuthUser }>('/login/', data);

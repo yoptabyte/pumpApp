@@ -47,6 +47,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             username=cast(str, validated_data['username']),
             email=cast(str, validated_data['email']),
             password=cast(str, validated_data['password']),
+            is_active=False,
         )
 
 

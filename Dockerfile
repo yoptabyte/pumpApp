@@ -20,8 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:${PATH}"
+RUN python -m pip install --no-cache-dir uv==0.6.14
 
 RUN useradd --create-home --shell /bin/bash appuser && \
     mkdir -p /app/media /app/static /app/frontend /app/bot_data && \

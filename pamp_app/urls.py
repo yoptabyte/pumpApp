@@ -19,6 +19,7 @@ urlpatterns = [
     path('bot/training-sessions/upcoming/', views.BotTrainingSessionsView.as_view(), name='bot-training-sessions'),
     path('bot/notifications/upcoming/', views.BotNotificationsView.as_view(), name='bot-notifications'),
     path('register/', views.register, name='register'),
+    path('register/verify-email/', views.verify_email, name='register-verify-email'),
     path('login/', views.login_view, name='login'),
     path('auth/session/refresh/', views.RefreshSessionView.as_view(), name='auth-session-refresh'),
     path('auth/session/logout/', views.LogoutView.as_view(), name='auth-session-logout'),

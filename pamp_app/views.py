@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
+from django.db.models import Q, QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.template import TemplateDoesNotExist
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from django.utils.decorators import method_decorator
-from django.db.models import QuerySet
 from rest_framework import filters, permissions, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
@@ -33,6 +34,8 @@ from .serializers import (
     UserSerializer,
 )
 from .services import (
+    EmailVerificationError,
+    EmailVerificationService,
     TelegramLinkAlreadyConfirmed,
     TelegramLinkExpired,
     TelegramLinkNotFound,
@@ -226,10 +229,31 @@ def register(request: Request) -> Response:
     serializer = RegisterSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     user = serializer.save()
+    EmailAddress.objects.update_or_create(
+        user=user,
+        email=user.email,
+        defaults={'primary': True, 'verified': False},
+    )
     profile, _created = Profile.objects.get_or_create(user=user)
-    token_pair = TokenService.issue_for_user(user)
-    response = Response({'user': UserSerializer(profile.user).data}, status=status.HTTP_201_CREATED)
-    return CookieAuthMixin.set_auth_cookies(response, token_pair)
+    EmailVerificationService.send_verification_email(user, request._request)
+    return Response(
+        {
+            'detail': 'Verification email sent. Open the link in your inbox to activate the account.',
+            'user': UserSerializer(profile.user).data,
+        },
+        status=status.HTTP_202_ACCEPTED,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def verify_email(request: Request) -> HttpResponse:
+    token = request.query_params.get('token', '')
+    try:
+        EmailVerificationService.verify_token(token)
+    except EmailVerificationError:
+        return redirect(settings.EMAIL_VERIFICATION_FAILURE_URL)
+    return redirect(settings.EMAIL_VERIFICATION_SUCCESS_URL)
 
 
 @csrf_protect
@@ -242,6 +266,12 @@ def login_view(request: Request) -> Response:
 
     username = serializer.validated_data['username']
     password = serializer.validated_data['password']
+    registered_user = User.objects.filter(Q(username=username) | Q(email__iexact=username)).first()
+    if registered_user is not None and not registered_user.is_active and registered_user.check_password(password):
+        return Response(
+            {'detail': 'Verify your email before logging in.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     user = authenticate(username=username, password=password)
 
     if user is None:

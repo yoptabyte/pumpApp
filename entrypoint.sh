@@ -9,13 +9,18 @@ mkdir -p /app/media /app/static /app/frontend/build/static
 
 if [ "$SERVICE_NAME" = "web" ]; then
     python manage.py migrate
-    cd /app/frontend
-    if [ ! -x /app/frontend/node_modules/.bin/vite ]; then
-        echo "Missing frontend dependencies in /app/frontend/node_modules. Rebuild the image or install them before starting web." >&2
-        exit 1
+    if [ "${COLLECTSTATIC:-0}" = "1" ]; then
+        python manage.py collectstatic --noinput
     fi
-    npm start &
-    cd /app
+    if [ "${START_FRONTEND_DEV_SERVER:-0}" = "1" ]; then
+        cd /app/frontend
+        if [ ! -x /app/frontend/node_modules/.bin/vite ]; then
+            echo "Missing frontend dependencies in /app/frontend/node_modules. Rebuild the image or install them before starting web." >&2
+            exit 1
+        fi
+        npm start &
+        cd /app
+    fi
     exec python manage.py runserver 0.0.0.0:8000
 fi
 

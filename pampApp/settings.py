@@ -4,6 +4,7 @@ Django settings for pampApp project.
 
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlencode
 
 from corsheaders.defaults import default_headers
 from decouple import Csv, config
@@ -126,7 +127,7 @@ ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_AUTHENTICATION_METHOD = 'email'
-ACCOUNT_EMAIL_VERIFICATION = 'none'
+ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
@@ -150,10 +151,13 @@ SIMPLE_JWT = {
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': config('REDIS_URL', default='redis://redis:6379/1'),
+        'LOCATION': config('REDIS_URL', default='redis://:redis-password@redis:6379/1'),
     }
 }
-CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=config('REDIS_URL', default='redis://redis:6379/1'))
+CELERY_BROKER_URL = config(
+    'CELERY_BROKER_URL',
+    default=config('REDIS_URL', default='redis://:redis-password@redis:6379/1'),
+)
 CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=CELERY_BROKER_URL)
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
@@ -172,6 +176,8 @@ CELERY_BEAT_SCHEDULE = {
 
 COOKIE_SECURE = config('COOKIE_SECURE', default=not DEBUG, cast=bool)
 COOKIE_SAMESITE = config('COOKIE_SAMESITE', default='Lax')
+FILE_UPLOAD_MAX_MEMORY_SIZE = config('FILE_UPLOAD_MAX_MEMORY_SIZE', default=10 * 1024 * 1024, cast=int)
+DATA_UPLOAD_MAX_MEMORY_SIZE = config('DATA_UPLOAD_MAX_MEMORY_SIZE', default=10 * 1024 * 1024, cast=int)
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 SESSION_COOKIE_HTTPONLY = True
@@ -189,6 +195,26 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_BROWSER_XSS_FILTER = True
 X_FRAME_OPTIONS = 'DENY'
 REFERRER_POLICY = 'strict-origin-when-cross-origin'
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='no-reply@pumpapp.local')
+EMAIL_VERIFICATION_TOKEN_MAX_AGE = config('EMAIL_VERIFICATION_TOKEN_MAX_AGE', default=86400, cast=int)
+EXTERNAL_MEDIA_ALLOWED_HOSTS = tuple(
+    host.strip().lower()
+    for host in config('EXTERNAL_MEDIA_ALLOWED_HOSTS', default='', cast=Csv())
+    if host.strip()
+)
+EXTERNAL_MEDIA_ALLOWED_SCHEMES = tuple(
+    scheme.strip().lower()
+    for scheme in config('EXTERNAL_MEDIA_ALLOWED_SCHEMES', default='https', cast=Csv())
+    if scheme.strip()
+)
+EMAIL_VERIFICATION_SUCCESS_URL = config(
+    'EMAIL_VERIFICATION_SUCCESS_URL',
+    default=f"{FRONTEND_URL.rstrip('/')}/login?{urlencode({'emailVerified': '1'})}",
+)
+EMAIL_VERIFICATION_FAILURE_URL = config(
+    'EMAIL_VERIFICATION_FAILURE_URL',
+    default=f"{FRONTEND_URL.rstrip('/')}/login?{urlencode({'emailVerified': '0'})}",
+)
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (

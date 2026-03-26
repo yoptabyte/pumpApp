@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from django.core import mail
+from django.core.files.uploadedfile import SimpleUploadedFile
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
@@ -188,3 +190,94 @@ class AuthSecurityTests(TestCase):
         self.assertEqual(logout_response.status_code, 204)
         with self.assertRaises(Exception):
             RefreshToken(refresh_token).check_blacklist()
+
+    def test_register_requires_email_verification_before_login(self) -> None:
+        self._issue_csrf()
+
+        register_response = self.client.post(
+            '/api/v1/register/',
+            {
+                'username': 'newuser',
+                'email': 'newuser@example.com',
+                'password': 'secret12345',
+                'password2': 'secret12345',
+            },
+            format='json',
+        )
+
+        self.assertEqual(register_response.status_code, 202)
+        created_user = User.objects.get(username='newuser')
+        self.assertFalse(created_user.is_active)
+        self.assertEqual(len(mail.outbox), 1)
+
+        verify_link = next(
+            line for line in mail.outbox[0].body.splitlines() if line.startswith('http')
+        )
+        verify_response = self.client.get(verify_link)
+
+        self.assertEqual(verify_response.status_code, 302)
+        created_user.refresh_from_db()
+        self.assertTrue(created_user.is_active)
+
+    def test_login_rejects_inactive_user(self) -> None:
+        inactive_user = User.objects.create_user(
+            username='pending-user',
+            email='pending@example.com',
+            password='secret12345',
+            is_active=False,
+        )
+        self.assertFalse(inactive_user.is_active)
+        self._issue_csrf()
+
+        response = self.client.post(
+            '/api/v1/login/',
+            {'username': 'pending-user', 'password': 'secret12345'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data['detail'], 'Verify your email before logging in.')
+
+
+@override_settings(EXTERNAL_MEDIA_ALLOWED_HOSTS=('cdn.example.com',))
+class PostMediaValidationTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(
+            username='media-user',
+            email='media@example.com',
+            password='secret12345',
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_rejects_invalid_uploaded_image_type(self) -> None:
+        invalid_file = SimpleUploadedFile('malware.txt', b'not-an-image', content_type='text/plain')
+
+        response = self.client.post(
+            '/api/v1/posts/',
+            {
+                'title': 'Bad upload',
+                'training_type': 'test',
+                'description': 'invalid image',
+                'images': invalid_file,
+            },
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Unsupported image file extension', str(response.data))
+
+    def test_rejects_non_allowlisted_external_media_url(self) -> None:
+        response = self.client.post(
+            '/api/v1/posts/',
+            {
+                'title': 'Bad url',
+                'training_type': 'test',
+                'description': 'invalid url',
+                'image_urls': 'https://localhost/internal.png',
+            },
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('hostname is not in the allowlist', str(response.data))

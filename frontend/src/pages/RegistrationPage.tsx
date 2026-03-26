@@ -1,15 +1,14 @@
 import React, { useContext, useState } from 'react';
 import { AxiosError } from 'axios';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 import { AuthContext } from '../contexts/AuthContext';
 import { ApiErrorResponse } from '../types';
-import { ensureCsrfCookie, getProfile, register } from '../services/api';
+import { ensureCsrfCookie, register } from '../services/api';
 import type { RegisterRequest } from '../services/api';
 
 const RegistrationPage: React.FC = () => {
-  const navigate = useNavigate();
-  const { login } = useContext(AuthContext);
+  const { user } = useContext(AuthContext);
 
   const [formData, setFormData] = useState<RegisterRequest>({
     username: '',
@@ -18,6 +17,7 @@ const RegistrationPage: React.FC = () => {
     password2: '',
   });
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -29,6 +29,7 @@ const RegistrationPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
 
     if (formData.password !== formData.password2) {
       setError('Passwords do not match.');
@@ -37,20 +38,23 @@ const RegistrationPage: React.FC = () => {
 
     try {
       await ensureCsrfCookie();
-      await register(formData);
-      const profileResponse = await getProfile();
-      login(profileResponse.data.user);
-      navigate('/');
+      const response = await register(formData);
+      setSuccess(response.data.detail || 'Verification email sent. Check your inbox.');
     } catch (err) {
       const errorResponse = err as AxiosError<ApiErrorResponse>;
       setError(errorResponse.response?.data?.detail || 'Registration failed.');
     }
   };
 
+  if (user) {
+    return null;
+  }
+
   return (
     <div className="registration-page">
       <h2>Create Account</h2>
       {error && <p className="error text-red-500">{error}</p>}
+      {success && <p className="text-green-600">{success}</p>}
       <form onSubmit={handleSubmit} className="flex flex-col max-w-md mx-auto">
         <input type="text" name="username" placeholder="Username" value={formData.username} onChange={handleChange} required className="mb-2 p-2 border rounded" />
         <input type="email" name="email" placeholder="Email" value={formData.email} onChange={handleChange} required className="mb-2 p-2 border rounded" />

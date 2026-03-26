@@ -40,9 +40,6 @@ services:
       - MINIO_ROOT_PASSWORD=${S3_SECRET_ACCESS_KEY}
     volumes:
       - minio_data:/data
-    ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
@@ -71,52 +68,43 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - .:/app
       - static_volume:/app/static
       - media_volume:/app/media
-      - frontend_build:/app/frontend/build
-      - /app/frontend/node_modules
-    ports:
-      - "8000:8000"
-      - "3001:3000"
     environment:
-      - DEBUG=${DEBUG}
+      - DEBUG=${DEBUG:-0}
       - SECRET_KEY=${SECRET_KEY}
-      - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,[::1],web,pumpapp.com
-      - CORS_ALLOWED_ORIGINS=http://localhost:3001,http://localhost:8000,http://localhost:8080,http://127.0.0.1:3001,http://127.0.0.1:8000,http://127.0.0.1:8080,http://web:3000,http://web:8000
-      - CSRF_TRUSTED_ORIGINS=http://localhost:3001,http://localhost:8000,http://localhost:8080,http://127.0.0.1:3001,http://127.0.0.1:8000,http://127.0.0.1:8080,http://web:3000,http://web:8000
+      - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS}
       - DB_NAME=${DB_NAME:-pampdb}
       - DB_USER=${DB_USER:-postgres}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST:-db}
       - DB_PORT=${DB_PORT:-5432}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
-      - BASE_API_URL=http://localhost:8000
-      - BASE_APP_URL=http://localhost:3001
-      - FRONTEND_URL=http://localhost:3001
-      - VITE_API_URL=http://localhost:8000/api/v1/
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - BASE_API_URL=${BASE_API_URL}
+      - BASE_APP_URL=${BASE_APP_URL}
+      - FRONTEND_URL=${FRONTEND_URL}
       - GOOGLE_OAUTH2_KEY=${GOOGLE_OAUTH2_KEY}
       - GOOGLE_OAUTH2_SECRET=${GOOGLE_OAUTH2_SECRET}
-      - NODE_ENV=development
       - SERVICE_NAME=web
-      - START_FRONTEND_DEV_SERVER=1
-      - PORT=3000
-      - WDS_SOCKET_PORT=3000
-      - CHOKIDAR_USEPOLLING=true
-      - COOKIE_SECURE=${COOKIE_SECURE:-0}
+      - COLLECTSTATIC=1
+      - COOKIE_SECURE=${COOKIE_SECURE:-1}
       - COOKIE_SAMESITE=${COOKIE_SAMESITE:-Lax}
-      - SECURE_SSL_REDIRECT=${SECURE_SSL_REDIRECT:-0}
-      - EXTERNAL_MEDIA_ALLOWED_HOSTS=${EXTERNAL_MEDIA_ALLOWED_HOSTS:-}
+      - SECURE_SSL_REDIRECT=${SECURE_SSL_REDIRECT:-1}
       - USE_S3_MEDIA_STORAGE=${USE_S3_MEDIA_STORAGE:-1}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
       - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID}
       - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
       - S3_MEDIA_BUCKET=${S3_MEDIA_BUCKET:-media}
-      - S3_MEDIA_BASE_URL=${S3_MEDIA_BASE_URL:-http://localhost:9000/media}
+      - S3_MEDIA_BASE_URL=${S3_MEDIA_BASE_URL}
       - S3_REGION=${S3_REGION:-us-east-1}
       - S3_ADDRESSING_STYLE=${S3_ADDRESSING_STYLE:-path}
       - S3_SIGNATURE_VERSION=${S3_SIGNATURE_VERSION:-s3v4}
       - S3_QUERYSTRING_AUTH=${S3_QUERYSTRING_AUTH:-1}
+      - EXTERNAL_MEDIA_ALLOWED_HOSTS=${EXTERNAL_MEDIA_ALLOWED_HOSTS}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/"]
       interval: 30s
@@ -138,8 +126,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    volumes:
-      - .:/app
     entrypoint: /app/bot_entrypoint.sh
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
@@ -162,11 +148,10 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - .:/app
       - static_volume:/app/static
       - media_volume:/app/media
     environment:
-      - DEBUG=${DEBUG}
+      - DEBUG=${DEBUG:-0}
       - SECRET_KEY=${SECRET_KEY}
       - DB_NAME=${DB_NAME:-pampdb}
       - DB_USER=${DB_USER:-postgres}
@@ -183,7 +168,7 @@ services:
       - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID}
       - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
       - S3_MEDIA_BUCKET=${S3_MEDIA_BUCKET:-media}
-      - S3_MEDIA_BASE_URL=${S3_MEDIA_BASE_URL:-http://localhost:9000/media}
+      - S3_MEDIA_BASE_URL=${S3_MEDIA_BASE_URL}
       - S3_REGION=${S3_REGION:-us-east-1}
       - S3_ADDRESSING_STYLE=${S3_ADDRESSING_STYLE:-path}
       - S3_SIGNATURE_VERSION=${S3_SIGNATURE_VERSION:-s3v4}
@@ -204,11 +189,10 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - .:/app
       - static_volume:/app/static
       - media_volume:/app/media
     environment:
-      - DEBUG=${DEBUG}
+      - DEBUG=${DEBUG:-0}
       - SECRET_KEY=${SECRET_KEY}
       - DB_NAME=${DB_NAME:-pampdb}
       - DB_USER=${DB_USER:-postgres}
@@ -225,7 +209,7 @@ services:
       - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID}
       - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
       - S3_MEDIA_BUCKET=${S3_MEDIA_BUCKET:-media}
-      - S3_MEDIA_BASE_URL=${S3_MEDIA_BASE_URL:-http://localhost:9000/media}
+      - S3_MEDIA_BASE_URL=${S3_MEDIA_BASE_URL}
       - S3_REGION=${S3_REGION:-us-east-1}
       - S3_ADDRESSING_STYLE=${S3_ADDRESSING_STYLE:-path}
       - S3_SIGNATURE_VERSION=${S3_SIGNATURE_VERSION:-s3v4}
@@ -247,7 +231,6 @@ services:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - static_volume:/app/static:ro
       - media_volume:/app/media:ro
-      - frontend_build:/app/frontend/build:ro
     ports:
       - "8080:8080"
     depends_on:
@@ -274,8 +257,6 @@ volumes:
     name: pamp_static_volume
   media_volume:
     name: pamp_media_volume
-  frontend_build:
-    name: pamp_frontend_build
   redis_data:
     name: pamp_redis_data
   minio_data:
