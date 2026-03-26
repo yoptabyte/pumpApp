@@ -1,5 +1,3 @@
-// types.tsx
-
 export interface UserData {
   id: number;
   username: string;
@@ -7,26 +5,38 @@ export interface UserData {
   profilePicture: string;
 }
 
-export interface Profile {
+export interface AuthUser {
   id: number;
-  user: number;
   username: string;
   email: string;
-  avatar: string;
+}
+
+export interface ApiErrorResponse {
+  detail?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
+export interface Profile {
+  id: number;
+  user: AuthUser;
+  username: string;
+  email?: string;
+  avatar: string | null;
 }
 
 
 export interface MediaItem {
   id: number | null;
-  image?: string;   
-  video?: string; 
-  image_url?: string; 
-  video_url?: string; 
+  image?: string;
+  video?: string;
+  image_url?: string;
+  video_url?: string;
 }
 
 export interface ExtendedMediaItem extends MediaItem {
-  file?: File; // Файл для загрузки (изображение или видео)
-  isNew?: boolean; 
+  file?: File;
+  isNew?: boolean;
 }
 
 
@@ -35,8 +45,8 @@ export interface Post {
   title: string;
   training_type: string;
   description: string;
-  images: MediaItem[]; // Список изображений с URL
-  videos: MediaItem[]; // Список видео с URL
+  images: MediaItem[];
+  videos: MediaItem[];
   views: number;
   created_at: string;
   updated_at: string;
@@ -44,17 +54,17 @@ export interface Post {
 }
 
 export interface ExtendedPost extends Omit<Post, 'images' | 'videos'> {
-  images: ExtendedMediaItem[]; // Изображения с возможностью включения файлов
-  videos: ExtendedMediaItem[]; // Видео с возможностью включения файлов
+  images: ExtendedMediaItem[];
+  videos: ExtendedMediaItem[];
 }
 
 
 export interface TrainingSession {
   id: number;
-  date: string; // ISO format date
-  time: string; // ISO format time
-  recurrence: string;   
-  days_of_week?: string; 
+  date: string;
+  time: string;
+  recurrence: string;
+  days_of_week?: string;
 }
 
 

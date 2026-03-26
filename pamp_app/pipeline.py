@@ -1,22 +1,28 @@
-# pamp_app/pipeline.py
-import json
-from social_core.pipeline.partial import partial
-from rest_framework_simplejwt.tokens import RefreshToken
+from __future__ import annotations
 
-def generate_jwt_tokens(strategy, details, user, *args, **kwargs):
-    refresh = RefreshToken.for_user(user)
-    access_token = str(refresh.access_token)
-    refresh_token = str(refresh)
+from typing import Protocol
 
-    user_data = {
-        'id': user.id,
-        'username': user.username,
-        'email': user.email,
-    }
+from django.conf import settings
+from django.contrib.auth.models import User
+from django.http import HttpRequest
+from django.http import HttpResponse
 
-    next_url = strategy.request.GET.get('next') or '/'
+from .services import TokenService, set_auth_cookies
 
-    redirect_url = f"{next_url}?access={access_token}&refresh={refresh_token}&user={json.dumps(user_data)}"
+class StrategyLike(Protocol):
+    request: HttpRequest
 
-    return strategy.redirect(redirect_url)
+    def redirect(self, url: str) -> HttpResponse: ...
 
+
+def generate_jwt_tokens(
+    strategy: StrategyLike,
+    details: object,
+    user: User,
+    *_args: object,
+    **_kwargs: object,
+) -> HttpResponse:
+    token_pair = TokenService.issue_for_user(user)
+    next_url = strategy.request.GET.get('next') or settings.FRONTEND_URL or '/'
+    response = strategy.redirect(next_url)
+    return set_auth_cookies(response, token_pair)

@@ -1,35 +1,31 @@
 #!/bin/bash
 set -e
 
-# wait for database
-while ! nc -z $DB_HOST $DB_PORT; do
-  echo "Waiting for database..."
+while ! nc -z "$DB_HOST" "$DB_PORT"; do
   sleep 1
 done
 
-echo "Database is available"
+mkdir -p /app/media /app/static /app/frontend/build/static
 
-mkdir -p /app/media
-mkdir -p /app/static
-mkdir -p /app/frontend/build/static
-
-chown -R www-data:www-data /app/media /app/static
-chmod -R 755 /app/media /app/static
-
-python manage.py migrate
-
-# frontend dependencies and start development server
 if [ "$SERVICE_NAME" = "web" ]; then
-    echo "Setting up frontend..."
+    python manage.py migrate
     cd /app/frontend
-    npm install
-    # start react development server in the background
+    if [ ! -x /app/frontend/node_modules/.bin/vite ]; then
+        echo "Missing frontend dependencies in /app/frontend/node_modules. Rebuild the image or install them before starting web." >&2
+        exit 1
+    fi
     npm start &
     cd /app
+    exec python manage.py runserver 0.0.0.0:8000
 fi
 
-# collect static files
-python manage.py collectstatic --noinput
+if [ "$SERVICE_NAME" = "celery_worker" ]; then
+    exec celery -A pampApp worker -l info
+fi
 
-# start django development server
-python manage.py runserver 0.0.0.0:8000
+if [ "$SERVICE_NAME" = "celery_beat" ]; then
+    exec celery -A pampApp beat -l info
+fi
+
+echo "Unknown SERVICE_NAME: $SERVICE_NAME" >&2
+exit 1

@@ -8,22 +8,22 @@ interface DeleteDialogProps {
 
 const DeleteDialog: React.FC<DeleteDialogProps> = ({ isDarkMode, onCancel, onConfirm }) => {
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-      <div className={`bg-white p-6 rounded-lg ${isDarkMode ? 'text-black' : ''}`}>
-        <h2 className="text-xl font-bold mb-4">Удаление поста</h2>
-        <p className="mb-4">Пост будет удален, вы уверены?</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className={`rounded-lg p-6 ${isDarkMode ? 'bg-slate-800 text-slate-100' : 'bg-white text-slate-900'}`}>
+        <h2 className="mb-4 text-xl font-bold">Delete Post</h2>
+        <p className="mb-4">This post will be permanently deleted. Continue?</p>
         <div className="flex justify-end">
           <button
-            className="mr-2 px-4 py-2 rounded bg-gray-300 hover:bg-gray-400"
+            className={`mr-2 rounded px-4 py-2 ${isDarkMode ? 'bg-slate-600 hover:bg-slate-500' : 'bg-gray-300 hover:bg-gray-400'}`}
             onClick={onCancel}
           >
-            Отмена
+            Cancel
           </button>
           <button
             className="px-4 py-2 rounded bg-red-500 text-white hover:bg-red-600"
             onClick={onConfirm}
           >
-            Да
+            Delete
           </button>
         </div>
       </div>

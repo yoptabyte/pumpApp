@@ -9,10 +9,10 @@ const DarkModeToggle: React.FC<DarkModeToggleProps> = ({ isDarkMode, toggleDarkM
   return (
     <button
       onClick={toggleDarkMode}
-      className="fixed top-4 right-4 text-2xl"
-      aria-label={isDarkMode ? 'Включить светлый режим' : 'Включить темный режим'}
+      className="fixed right-4 top-4 text-2xl"
+      aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
     >
-      {isDarkMode ? '☀️ ' : '🌑'}
+      {isDarkMode ? '☀️' : '🌙'}
     </button>
   );
 };

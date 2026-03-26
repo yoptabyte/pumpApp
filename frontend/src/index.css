@@ -1,3 +1,77 @@
-@import 'tailwindcss/base';
-@import 'tailwindcss/components';
-@import 'tailwindcss/utilities';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  @apply bg-gray-100 text-gray-900 transition-colors duration-300;
+}
+
+.dark body {
+  @apply bg-slate-900 text-slate-100;
+}
+
+.dark .rbc-calendar,
+.dark .rbc-month-view,
+.dark .rbc-time-view,
+.dark .rbc-time-content,
+.dark .rbc-time-header-content {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+
+.dark .rbc-header,
+.dark .rbc-time-content > * + * > *,
+.dark .rbc-month-row + .rbc-month-row,
+.dark .rbc-day-bg + .rbc-day-bg {
+  border-color: #334155;
+}
+
+.dark .rbc-off-range-bg {
+  background-color: #1e293b;
+}
+
+.dark .rbc-off-range {
+  color: #64748b;
+}
+
+.dark .rbc-today {
+  background-color: #1f2937;
+}
+
+.dark .rbc-toolbar button {
+  background-color: #0f172a;
+  border-color: #334155;
+  color: #cbd5e1;
+}
+
+.dark .rbc-toolbar button:hover,
+.dark .rbc-toolbar button:focus {
+  background-color: #1e293b;
+  color: #f8fafc;
+}
+
+.dark .rbc-toolbar button.rbc-active {
+  background-color: #334155;
+  color: #f8fafc;
+}
+
+.dark .modal-content {
+  background-color: #1e293b;
+  color: #e2e8f0;
+  border-color: #334155;
+}
+
+.dark .modal-header,
+.dark .modal-footer {
+  border-color: #334155;
+}
+
+.dark .modal-header .btn-close {
+  filter: invert(1) grayscale(100%);
+}

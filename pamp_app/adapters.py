@@ -1,25 +1,37 @@
-# pamp_app/adapters.py
+from __future__ import annotations
+
+from typing import Protocol
 
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import User
+from django.http import HttpRequest
 
-User = get_user_model()
+UserModel = get_user_model()
+
+
+class SocialAccountLike(Protocol):
+    extra_data: dict[str, object]
+
+
+class SocialLoginLike(Protocol):
+    account: SocialAccountLike
+
+    def connect(self, request: HttpRequest, user: User) -> None: ...
+
 
 class MySocialAccountAdapter(DefaultSocialAccountAdapter):
-    def pre_social_login(self, request, sociallogin):
-        # If user is already logged in, do nothing
-        if request.user.is_authenticated:
+    def pre_social_login(self, request: HttpRequest, sociallogin: SocialLoginLike) -> None:
+        if getattr(request.user, 'is_authenticated', False):
             return
 
-        # Try to find an existing user with the same email address
-        email = sociallogin.account.extra_data.get('email', '').lower()
+        email = str(sociallogin.account.extra_data.get('email') or '').lower()
         if not email:
-            return  # Email is required; if not present, cannot proceed
+            return
 
         try:
-            user = User.objects.get(email=email)
-            # Associate the social account with the existing user
-            sociallogin.connect(request, user)
-        except User.DoesNotExist:
-            pass  # No user exists with this email, proceed normally
+            user = UserModel.objects.get(email=email)
+        except UserModel.DoesNotExist:
+            return
 
+        sociallogin.connect(request, user)

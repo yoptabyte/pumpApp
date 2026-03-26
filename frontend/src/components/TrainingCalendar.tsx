@@ -1,5 +1,3 @@
-// TrainingCalendar.tsx
-
 import React, { useState, useEffect } from 'react';
 import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
@@ -34,21 +32,19 @@ const TrainingCalendar: React.FC<TrainingCalendarProps> = ({ isDarkMode }) => {
 
   const fetchTrainingSessions = async () => {
     try {
-      const response = await getTrainingSessions();
-      const sessions = response.data;
-      let allEvents: CalendarEvent[] = [];
+      const sessions = await getTrainingSessions({ ordering: 'date,time' });
+      const allEvents: CalendarEvent[] = [];
       sessions.forEach((session: TrainingSession) => {
         const eventStart = moment(session.date + ' ' + session.time).toDate();
         allEvents.push({
           id: session.id,
-          title: 'Тренировка',
+          title: 'Training',
           start: eventStart,
-          end: moment(eventStart).add(1, 'hour').toDate(), // assuming 1-hour sessions
+          end: moment(eventStart).add(1, 'hour').toDate(),
         });
       });
       setEvents(allEvents);
     } catch (error) {
-      console.error('Ошибка при получении тренировок:', error);
     }
   };
 
@@ -67,11 +63,11 @@ const TrainingCalendar: React.FC<TrainingCalendarProps> = ({ isDarkMode }) => {
   const handleDialogClose = () => {
     setShowDialog(false);
     setSelectedEvent(null);
-    setRefreshEvents(!refreshEvents);
+    setRefreshEvents((prev) => !prev);
   };
 
   return (
-    <div className={`p-4 ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-white text-black'}`}>
+    <div className={`training-calendar p-4 ${isDarkMode ? 'bg-slate-900 text-slate-100' : 'bg-white text-black'}`}>
       <Calendar
         localizer={localizer}
         events={events}
@@ -82,12 +78,13 @@ const TrainingCalendar: React.FC<TrainingCalendarProps> = ({ isDarkMode }) => {
         endAccessor="end"
         style={{ height: 600 }}
         views={['month', 'week', 'day']}
+        className={isDarkMode ? 'pump-calendar-dark' : ''}
         eventPropGetter={(event: CalendarEvent) => ({
           style: {
-          	backgroundColor: isDarkMode ? '#1a202c' : '#3182ce',
-    		color: 'white',
-  	   },
-	})}
+            backgroundColor: isDarkMode ? '#1e293b' : '#3182ce',
+            color: 'white',
+          },
+        })}
       />
       {showDialog && selectedSlot && !selectedEvent && (
         <TrainingSessionDialog

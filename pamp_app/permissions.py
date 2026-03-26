@@ -1,19 +1,11 @@
-# pamp_app/permissions.py
-
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
+
 class IsOwnerOrReadOnly(BasePermission):
-    """
-    Custom permission to only allow owners of a post to edit or delete it.
-    Others can only view.
-    """
+    """Allow safe methods to everyone and write methods only to owners."""
 
     def has_object_permission(self, request, view, obj):
-        # Read permissions are allowed to any request,
-        # so we'll always allow GET, HEAD, or OPTIONS requests.
         if request.method in SAFE_METHODS:
             return True
 
-        # Write permissions are only allowed to the owner of the post.
-        return obj.profile.user == request.user
-
+        return getattr(obj.profile, 'user_id', None) == getattr(request.user, 'id', None)

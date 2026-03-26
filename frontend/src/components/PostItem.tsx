@@ -1,13 +1,11 @@
-// src/components/PostItem.tsx
-
 import React from 'react';
 import { Post } from '../types';
 
 interface PostItemProps {
   post: Post;
   isDarkMode: boolean;
-  startEditing: () => void;
-  showDeleteConfirmation: () => void;
+  startEditing?: () => void;
+  showDeleteConfirmation?: () => void;
   canEdit: boolean;
   canDelete: boolean;
 }
@@ -26,7 +24,6 @@ const PostItem: React.FC<PostItemProps> = ({
         isDarkMode ? 'bg-gray-800 text-white' : 'bg-white text-gray-800'
       } relative`}
     >
-      {/* Conditional Edit Button */}
       {canEdit && (
         <div className="absolute top-2 left-2 flex space-x-2">
           <button
@@ -39,7 +36,6 @@ const PostItem: React.FC<PostItemProps> = ({
         </div>
       )}
 
-      {/* Conditional Delete Button */}
       {canDelete && (
         <div className="absolute top-2 right-2 flex space-x-2">
           <button
@@ -52,12 +48,11 @@ const PostItem: React.FC<PostItemProps> = ({
         </div>
       )}
 
-      {/* Post Header with Profile Information */}
       {post.profile && (
         <div className="flex items-center mb-4">
           {post.profile.avatar ? (
             <img
-              src={`${post.profile.avatar}?t=${Date.now()}`} // Cache busting
+              src={`${post.profile.avatar}?t=${Date.now()}`}
               alt={`${post.profile.username}'s avatar`}
               className="w-12 h-12 rounded-full mr-4 object-cover"
               onError={(e) => {
@@ -73,14 +68,12 @@ const PostItem: React.FC<PostItemProps> = ({
         </div>
       )}
 
-      {/* Post Content */}
       <h2 className="text-2xl font-bold mb-4">{post.title}</h2>
       <p className="mb-4">{post.description}</p>
-      <p className="text-sm text-gray-500 mb-4">
-        Тип тренировки: {post.training_type}
+      <p className={`mb-4 text-sm ${isDarkMode ? 'text-slate-300' : 'text-gray-500'}`}>
+        Training type: {post.training_type}
       </p>
 
-      {/* Images */}
       {post.images.length > 0 && (
         <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {post.images.map((image) => (
@@ -94,7 +87,6 @@ const PostItem: React.FC<PostItemProps> = ({
         </div>
       )}
 
-      {/* Videos */}
       {post.videos.length > 0 && (
         <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {post.videos.map((video) => (
@@ -133,17 +125,15 @@ const PostItem: React.FC<PostItemProps> = ({
         </div>
       )}
 
-      {/* Post Metadata */}
-      <div className="mt-4 text-sm text-gray-500">
-        <p>Просмотры: {post.views}</p>
-        <p>Создано: {new Date(post.created_at).toLocaleString()}</p>
-        <p>Обновлено: {new Date(post.updated_at).toLocaleString()}</p>
+      <div className={`mt-4 text-sm ${isDarkMode ? 'text-slate-300' : 'text-gray-500'}`}>
+        <p>Views: {post.views}</p>
+        <p>Created: {new Date(post.created_at).toLocaleString('en-US')}</p>
+        <p>Updated: {new Date(post.updated_at).toLocaleString('en-US')}</p>
       </div>
     </div>
   );
 };
 
-// Function to extract YouTube Video ID
 function extractYouTubeID(url: string): string | null {
   const regExp =
     /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;

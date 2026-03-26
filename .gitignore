@@ -177,3 +177,6 @@ packages/react-devtools-fusebox/dist
 packages/react-devtools-inline/dist
 packages/react-devtools-shell/dist
 packages/react-devtools-timeline/dist
+chat_ids.json
+reminder_tg_bot/chat_ids.json
+/staticfiles

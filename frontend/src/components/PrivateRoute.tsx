@@ -1,5 +1,3 @@
-// src/components/PrivateRoute.tsx
-
 import React, { useContext } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AuthContext } from '../contexts/AuthContext';
@@ -9,7 +7,11 @@ interface PrivateRouteProps {
 }
 
 const PrivateRoute: React.FC<PrivateRouteProps> = ({ children }) => {
-  const { user } = useContext(AuthContext);
+  const { user, isLoading } = useContext(AuthContext);
+
+  if (isLoading) {
+    return <div className="p-6">Loading session...</div>;
+  }
 
   return user ? children : <Navigate to="/login" replace />;
 };

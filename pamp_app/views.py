@@ -1,365 +1,394 @@
-from django.shortcuts import render,get_object_or_404
-from rest_framework import viewsets, permissions, status
-from rest_framework.response import Response
+from __future__ import annotations
+
+from django.conf import settings
 from django.contrib.auth import authenticate
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.decorators import api_view , action , permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework_api_key.permissions import HasAPIKey
-from .models import Profile, Post,TrainingSession,TelegramLink
-
-
-from rest_framework.views import APIView
-import uuid
-import logging
-from django.utils import timezone
 from django.contrib.auth.models import User
-
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.shortcuts import redirect, render
+from django.template import TemplateDoesNotExist
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
+from django.db.models import QuerySet
+from rest_framework import filters, permissions, status, viewsets
+from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
+from rest_framework.views import APIView
+from rest_framework_api_key.permissions import HasAPIKey
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 
-from  pamp_app.permissions import IsOwnerOrReadOnly
-
-
-#from datetime import timedelta
-#import os
-#from django.urls import path
-#from rest_framework.permissions import IsAuthenticated
-#import os
-#from django.conf import settings
-#from rest_framework.parsers import MultiPartParser, FormParser
-#from rest_framework import status
-
-
+from .models import Notification, Post, Profile, TrainingSession
+from .permissions import IsOwnerOrReadOnly
 from .serializers import (
-    ProfileSerializer,
-    PostSerializer,
-    TrainingSessionSerializer,
-    RegisterSerializer,
+    GoogleLoginSerializer,
     LoginSerializer,
+    PostSerializer,
+    ProfileSerializer,
+    RegisterSerializer,
+    TrainingSessionSerializer,
     UserSerializer,
-    GoogleLoginSerializer
+)
+from .services import (
+    TelegramLinkAlreadyConfirmed,
+    TelegramLinkExpired,
+    TelegramLinkNotFound,
+    TelegramLinkService,
+    TrainingReminderService,
+    TokenPair,
+    TokenService,
+    blacklist_refresh_token,
+    clear_auth_cookies,
+    set_auth_cookies,
 )
 
-
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
-from allauth.socialaccount.providers.oauth2.client import OAuth2Client
-from dj_rest_auth.registration.views import SocialLoginView
-
-logger = logging.getLogger(__name__)
-
-class GoogleLogin(SocialLoginView):
-    adapter_class = GoogleOAuth2Adapter
-    callback_url = "http://localhost:3000"  # URL React
-    client_class = OAuth2Client
-    serializer_class = GoogleLoginSerializer
-
-    def get_response(self):
-        response = super().get_response()
-        return response
+telegram_link_service = TelegramLinkService()
+training_reminder_service = TrainingReminderService()
 
 
-@csrf_exempt
-def google_callback(request):
+class AuthRateThrottle(AnonRateThrottle):
+    scope = 'auth'
+
+
+class TelegramConfirmRateThrottle(AnonRateThrottle):
+    scope = 'telegram_confirm'
+
+
+class CookieAuthMixin:
+    @staticmethod
+    def set_auth_cookies(response: Response, token_pair: TokenPair) -> Response:
+        return set_auth_cookies(response, token_pair)
+
+    @staticmethod
+    def clear_auth_cookies(response: Response) -> Response:
+        return clear_auth_cookies(response)
+
+
+def google_callback(_request: HttpRequest) -> JsonResponse:
     return JsonResponse({'message': 'Authentication successful'})
 
+
+@ensure_csrf_cookie
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def csrf_cookie(request: Request) -> Response:
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@method_decorator(csrf_protect, name='dispatch')
+class GoogleLoginView(CookieAuthMixin, APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
+
+    def post(self, request: Request) -> Response:
+        serializer = GoogleLoginSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data['user']
+        token_pair = TokenService.issue_for_user(user)
+        response = Response({'user': UserSerializer(user).data}, status=status.HTTP_200_OK)
+        return self.set_auth_cookies(response, token_pair)
+
+
+@method_decorator(csrf_protect, name='dispatch')
+class RefreshSessionView(CookieAuthMixin, APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request: Request) -> Response:
+        refresh_cookie = request.COOKIES.get(settings.JWT_AUTH_REFRESH_COOKIE)
+        if not refresh_cookie:
+            return Response({'detail': 'Refresh cookie is missing.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            token_pair = TokenService.issue_from_refresh(refresh_cookie)
+        except Exception:
+            response = Response({'detail': 'Refresh token is invalid.'}, status=status.HTTP_401_UNAUTHORIZED)
+            return self.clear_auth_cookies(response)
+
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        return self.set_auth_cookies(response, token_pair)
+
+
+@method_decorator(csrf_protect, name='dispatch')
+class LogoutView(CookieAuthMixin, APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request: Request) -> Response:
+        blacklist_refresh_token(request.COOKIES.get(settings.JWT_AUTH_REFRESH_COOKIE))
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        return self.clear_auth_cookies(response)
+
+
+def index(request: HttpRequest) -> HttpResponse:
+    try:
+        return render(request, 'index.html')
+    except TemplateDoesNotExist:
+        return redirect(settings.FRONTEND_URL)
 
 
 class ProfileViewSet(viewsets.ModelViewSet):
     serializer_class = ProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-   
+    def get_queryset(self) -> QuerySet[Profile]:
+        return Profile.objects.select_related('user').filter(user=self.request.user)
+
     @action(detail=False, methods=['get', 'put', 'patch'], url_path='me')
-    def me(self, request):
-        profile = get_object_or_404(Profile, user=request.user)
+    def me(self, request: Request) -> Response:
+        profile, _created = Profile.objects.get_or_create(user=request.user)
         if request.method == 'GET':
             serializer = self.get_serializer(profile)
             return Response(serializer.data)
-        elif request.method in ['PUT', 'PATCH']:
-            serializer = self.get_serializer(profile, data=request.data, partial=(request.method == 'PATCH'))
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return Response(serializer.data)
-    
-    def get_queryset(self):
-        return Profile.objects.filter(user=self.request.user)
 
-
+        serializer = self.get_serializer(profile, data=request.data, partial=request.method == 'PATCH')
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class PostViewSet(viewsets.ModelViewSet):
-    #queryset = Post.objects.all()
-    #serializer_class = PostSerializer
-    #permission_classes = [permissions.IsAuthenticated]
-
-    queryset = Post.objects.all().order_by('-created_at')
+    queryset = Post.objects.select_related('profile', 'profile__user').prefetch_related('images', 'videos').order_by('-created_at')
     serializer_class = PostSerializer
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['title', 'description', 'training_type', 'profile__user__username']
+    ordering_fields = ['created_at', 'updated_at', 'views', 'title', 'training_type']
+    ordering = ['-created_at']
 
-
-
- #    def perform_create(self, serializer):
- #        instance = serializer.save()
- #        for image in instance.images.all():
- #            if image.image:
- #                print(f"Image saved at: {image.image.path}")
- #                print(f"Image URL: {image.image.url}")
- #            elif image.image_url:
- #                print(f"Image URL: {image.image_url}")
- #            else:
- #                print("No image file or URL provided.")
-
- #        for video in instance.videos.all():
- #            if video.video:
- #                print(f"Video saved at: {video.video.path}")
- #                print(f"Video URL: {video.video.url}")
- #            elif video.video_url:
- #                print(f"Video URL: {video.video_url}")
- #            else:
- #                print("No video file or URL provided.")
- # 
-    # def get_queryset(self):
-    #     return Post.objects.filter(profile__user=self.request.user)
-
-
-
-    def get_queryset(self):
-        """
-        Optionally restricts the returned posts to the current user,
-        by filtering against a `mine` query parameter in the URL.
-        """
-        queryset = Post.objects.all().order_by('-created_at')
+    def get_queryset(self) -> QuerySet[Post]:
+        queryset = Post.objects.select_related('profile', 'profile__user').prefetch_related('images', 'videos').order_by('-created_at')
+        scope = self.request.query_params.get('scope')
         mine = self.request.query_params.get('mine')
         exclude_mine = self.request.query_params.get('exclude_mine')
 
-
-        if mine == 'true':
-            queryset = queryset.filter(profile__user=self.request.user)
-
-        elif exclude_mine == 'true':
-            queryset = queryset.exclude(profile=self.request.user.profile)
-            
+        if scope == 'mine' or mine == 'true':
+            return queryset.filter(profile__user=self.request.user)
+        if scope == 'all' or exclude_mine == 'true':
+            return queryset.exclude(profile__user=self.request.user)
         return queryset
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='scope', type=OpenApiTypes.STR, location=OpenApiParameter.QUERY, required=False, description='Resource scope.', enum=['all', 'mine']),
+            OpenApiParameter(name='search', type=OpenApiTypes.STR, location=OpenApiParameter.QUERY, required=False, description='Search by username, title, description, or training type.'),
+            OpenApiParameter(name='ordering', type=OpenApiTypes.STR, location=OpenApiParameter.QUERY, required=False, description='Ordering field, for example "-created_at" or "views".'),
+            OpenApiParameter(name='page', type=OpenApiTypes.INT, location=OpenApiParameter.QUERY, required=False, description='Page number for paginated results.'),
+        ]
+    )
+    def list(self, request: Request, *args: object, **kwargs: object) -> Response:
+        return super().list(request, *args, **kwargs)
 
-    def perform_create(self, serializer):
-        serializer.save(profile=self.request.user.profile)
-
-
-
-
-
-def post_list(request):
-    posts = Post.objects.all()
-    return render(request, 'pamp_app/post_list.html', {'posts': posts})
-
-def post_detail(request, id):
-    post = get_object_or_404(Post, id=id)
-    return render(request, 'pamp_app/post_detail.html', {'post': post})
-
-
-#class TrainingSessionViewSet(viewsets.ModelViewSet):
-    #serializer_class = TrainingSessionSerializer
-    #permission_classes = [permissions.IsAuthenticated]
-
-    #def get_queryset(self):
-        #return TrainingSession.objects.filter(profile=self.request.user.profile)
-    
-    
-#class TrainingSessionListView(APIView):
-    # permission_classes = [HasAPIKey]
-
-    # def get(self, request):
-    #     user_id = request.query_params.get('id')
-    #     if not user_id:
-    #         return Response({"detail": "id обязателен."}, status=status.HTTP_400_BAD_REQUEST)
-    #     try:
-    #         user = User.objects.get(id=user_id)
-    #     except User.DoesNotExist:
-    #         return Response({"detail": "Пользователь не найден."}, status=status.HTTP_404_NOT_FOUND)
-    #     
-    #     now = timezone.now().date()
-    #     sessions = TrainingSession.objects.filter(profile__user=user, date__gte=now).order_by('date')
-    #     serializer = TrainingSessionSerializer(sessions, many=True)
-    #     return Response(serializer.data, status=status.HTTP_200_OK)
-
-#     
-# class TrainingSessionViewSet(ModelViewSet):
-#     queryset = TrainingSession.objects.all()
-#     serializer_class = TrainingSessionSerializer
-#     permission_classes = [HasAPIKey]
-
-
-
+    def perform_create(self, serializer: PostSerializer) -> None:
+        profile, _created = Profile.objects.get_or_create(user=self.request.user)
+        serializer.save(profile=profile)
 
 
 class TrainingSessionViewSet(viewsets.ModelViewSet):
     serializer_class = TrainingSessionSerializer
     permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['date', 'time', 'recurrence']
+    ordering = ['date']
 
-    def get_queryset(self):
-        return TrainingSession.objects.filter(profile__user=self.request.user)
+    def get_queryset(self) -> QuerySet[TrainingSession]:
+        return TrainingSession.objects.select_related('profile', 'profile__user').filter(profile__user=self.request.user)
 
-    def perform_create(self, serializer):
-        serializer.save(profile=self.request.user.profile)
+    def perform_create(self, serializer: TrainingSessionSerializer) -> None:
+        profile, _created = Profile.objects.get_or_create(user=self.request.user)
+        session = serializer.save(profile=profile)
+        training_reminder_service.sync_training_session(session)
 
+    def perform_update(self, serializer: TrainingSessionSerializer) -> None:
+        session = serializer.save()
+        training_reminder_service.sync_training_session(session)
 
-#@method_decorator(csrf_exempt, name='dispatch')
-#@api_view(['POST'])
-#@action(detail=False, methods=['post'], url_path='register')
-#@csrf_exempt
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def register(request):
-    serializer = RegisterSerializer(data=request.data)
-    if serializer.is_valid():
-        user = serializer.save()
-        refresh = RefreshToken.for_user(user)
-        return Response({
-            'user': UserSerializer(user).data,
-            'refresh': str(refresh),
-            'access': str(refresh.access_token),
-        }, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def perform_destroy(self, instance: TrainingSession) -> None:
+        training_reminder_service.clear_training_session(instance)
+        instance.delete()
 
 
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def login_view(request):
-    serializer = LoginSerializer(data=request.data)
-    if serializer.is_valid():
-        username = serializer.validated_data['username']
-        password = serializer.validated_data['password']
-        user = authenticate(username=username, password=password)
-        if user:
-            refresh = RefreshToken.for_user(user)
-            return Response({
-                'user': UserSerializer(user).data,
-                'refresh': str(refresh),
-                'access': str(refresh.access_token),
-            }, status=status.HTTP_200_OK)
-        return Response({'error': 'Неверные учетные данные.'}, status=status.HTTP_401_UNAUTHORIZED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-
-
-@api_view(['GET', 'PUT', 'PATCH'])
-@permission_classes([permissions.IsAuthenticated])
-def user_profile(request):
-    profile = request.user.profile
-    if request.method == 'GET':
-        serializer = ProfileSerializer(profile)
-        return Response(serializer.data)
-    elif request.method in ['PUT', 'PATCH']:
-        partial = request.method == 'PATCH'
-        serializer = ProfileSerializer(profile, data=request.data, partial=partial)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-
-@api_view(['GET'])
-def user_posts(request):
-    posts = Post.objects.filter(profile=request.user.profile)
-    serializer = PostSerializer(posts, many=True)
-    return Response(serializer.data)
-
-
-
-
-#Telegram things
-class LinkTelegramView(APIView):
+class MyTrainingSessionsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request):
-        user = request.user
-        link, created = TelegramLink.objects.get_or_create(user=user)
-        if link.telegram_user_id:
-            logger.info(f"Пользователь {user.id} уже связан с Telegram.")
-            return Response({"detail": "Telegram уже связан."}, status=status.HTTP_400_BAD_REQUEST)
-        link.linking_code = uuid.uuid4()
-        link.save()
-        logger.info(f"Сгенерирован код связывания для пользователя {user.id}: {link.linking_code}")
-        return Response({"code": str(link.linking_code)}, status=status.HTTP_200_OK)
-
-
-
-class LinkTelegramStatusView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request):
-        user = request.user
-        try:
-            link = TelegramLink.objects.get(user=user)
-            if link.telegram_user_id:
-                return Response({"linked": True}, status=status.HTTP_200_OK)
-            elif link.is_expired():
-                return Response({"linked": False, "status": "expired"}, status=status.HTTP_200_OK)
-            else:
-                return Response({"linked": False, "status": "pending"}, status=status.HTTP_200_OK)
-        except TelegramLink.DoesNotExist:
-            return Response({"linked": False, "status": "no_link"}, status=status.HTTP_200_OK)
-
-
-
-class LinkTelegramConfirmView(APIView):
-    permission_classes = [permissions.AllowAny] 
-
-    def post(self, request):
-        code = request.data.get('code')
-        telegram_user_id = request.data.get('telegram_user_id')
-
-        if not code or not telegram_user_id:
-            logger.warning("Запрос без кода или telegram_user_id.")
-            return Response({"detail": "Код и telegram_user_id обязательны."}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            link = TelegramLink.objects.get(linking_code=code)
-            if link.is_expired():
-                logger.warning(f"Код {code} истёк.")
-                return Response({"detail": "Код истёк."}, status=status.HTTP_400_BAD_REQUEST)
-            link.telegram_user_id = telegram_user_id
-            link.linking_code = None  # Сбрасываем код после связывания
-            link.save()
-            logger.info(f"Пользователь {link.user.id} успешно связан с Telegram ID {telegram_user_id}.")
-            return Response({"detail": "Telegram успешно связан.", "user_id": link.user.id}, status=status.HTTP_200_OK)
-        except TelegramLink.DoesNotExist:
-            logger.warning(f"Неверный код связывания: {code}")
-            return Response({"detail": "Неверный код."}, status=status.HTTP_400_BAD_REQUEST)
-
-
-
-class UserTrainingSessionsView(APIView):
-    permission_classes = [HasAPIKey]
-
-    def get(self, request):
-        user_id = request.query_params.get('id')
-
-        if not user_id:
-            return Response({"detail": "id обязателен."}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response({"detail": "Пользователь не найден."}, status=status.HTTP_404_NOT_FOUND)
-
-        now = timezone.now().date()
-        sessions = TrainingSession.objects.filter(profile__user=user, date__gte=now).order_by('date')
-
+    def get(self, request: Request) -> Response:
+        sessions = TrainingSession.objects.select_related('profile', 'profile__user').filter(profile__user=request.user).order_by('date')
         serializer = TrainingSessionSerializer(sessions, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+@csrf_protect
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([AuthRateThrottle])
+def register(request: Request) -> Response:
+    serializer = RegisterSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    user = serializer.save()
+    profile, _created = Profile.objects.get_or_create(user=user)
+    token_pair = TokenService.issue_for_user(user)
+    response = Response({'user': UserSerializer(profile.user).data}, status=status.HTTP_201_CREATED)
+    return CookieAuthMixin.set_auth_cookies(response, token_pair)
 
-# Render React app
-# def index(request):
-    #return render(request, 'index.html')
+
+@csrf_protect
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([AuthRateThrottle])
+def login_view(request: Request) -> Response:
+    serializer = LoginSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    username = serializer.validated_data['username']
+    password = serializer.validated_data['password']
+    user = authenticate(username=username, password=password)
+
+    if user is None:
+        return Response({'detail': 'Invalid credentials.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    token_pair = TokenService.issue_for_user(user)
+    response = Response({'user': UserSerializer(user).data}, status=status.HTTP_200_OK)
+    return CookieAuthMixin.set_auth_cookies(response, token_pair)
+
+
+@api_view(['GET', 'PUT', 'PATCH'])
+@permission_classes([permissions.IsAuthenticated])
+def me_profile(request: Request) -> Response:
+    profile, _created = Profile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        serializer = ProfileSerializer(profile)
+        return Response(serializer.data)
+
+    serializer = ProfileSerializer(profile, data=request.data, partial=request.method == 'PATCH')
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def me_posts(request: Request) -> Response:
+    posts = Post.objects.select_related('profile', 'profile__user').prefetch_related('images', 'videos').filter(profile__user=request.user)
+    serializer = PostSerializer(posts, many=True)
+    return Response(serializer.data)
+
+
+class MyTelegramLinkView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        return Response(telegram_link_service.get_status(request.user), status=status.HTTP_200_OK)
+
+    def post(self, request: Request) -> Response:
+        try:
+            payload = telegram_link_service.request_link(request.user)
+        except TelegramLinkAlreadyConfirmed:
+            return Response({'detail': 'Telegram already linked.'}, status=status.HTTP_409_CONFLICT)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class LinkTelegramConfirmView(APIView):
+    permission_classes = [HasAPIKey]
+    throttle_classes = [TelegramConfirmRateThrottle]
+
+    def post(self, request: Request) -> Response:
+        code = request.data.get('code')
+        telegram_user_id = request.data.get('telegram_user_id')
+
+        if not code or not telegram_user_id:
+            return Response({'detail': 'Both code and telegram_user_id are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            link = telegram_link_service.confirm_link(code=code, telegram_user_id=telegram_user_id)
+        except TelegramLinkNotFound:
+            return Response({'detail': 'Invalid code.'}, status=status.HTTP_404_NOT_FOUND)
+        except TelegramLinkExpired:
+            return Response({'detail': 'Code has expired.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({'detail': 'Telegram linked successfully.'}, status=status.HTTP_200_OK)
+
+
+class BotTelegramStatusView(APIView):
+    permission_classes = [HasAPIKey]
+
+    def get(self, request: Request) -> Response:
+        telegram_user_id = request.query_params.get('telegram_user_id')
+        if not telegram_user_id:
+            return Response({'detail': 'telegram_user_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        link = telegram_link_service.get_link_by_telegram_user_id(telegram_user_id)
+        if link is None:
+            return Response({'linked': False, 'status': 'not_linked'}, status=status.HTTP_200_OK)
+
+        telegram_link_service.touch_interaction(telegram_user_id)
+        return Response(
+            {
+                'linked': True,
+                'status': 'linked',
+                'user': UserSerializer(link.user).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class BotTrainingSessionsView(APIView):
+    permission_classes = [HasAPIKey]
+
+    def get(self, request: Request) -> Response:
+        telegram_user_id = request.query_params.get('telegram_user_id')
+        if not telegram_user_id:
+            return Response({'detail': 'telegram_user_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        link = telegram_link_service.get_link_by_telegram_user_id(telegram_user_id)
+        if link is None:
+            return Response({'detail': 'Telegram user is not linked.'}, status=status.HTTP_404_NOT_FOUND)
+
+        telegram_link_service.touch_interaction(telegram_user_id)
+        occurrences = training_reminder_service.get_upcoming_sessions_for_link(link)[:20]
+        payload = [
+            {
+                'training_session_id': occurrence.training_session_id,
+                'date': occurrence.starts_at.astimezone(occurrence.training_session.get_zoneinfo()).date().isoformat(),
+                'time': occurrence.starts_at.astimezone(occurrence.training_session.get_zoneinfo()).strftime('%H:%M:%S'),
+                'timezone': occurrence.training_session.timezone,
+                'starts_at': occurrence.starts_at.isoformat(),
+            }
+            for occurrence in occurrences
+        ]
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class BotNotificationsView(APIView):
+    permission_classes = [HasAPIKey]
+
+    def get(self, request: Request) -> Response:
+        telegram_user_id = request.query_params.get('telegram_user_id')
+        if not telegram_user_id:
+            return Response({'detail': 'telegram_user_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        link = telegram_link_service.get_link_by_telegram_user_id(telegram_user_id)
+        if link is None:
+            return Response({'detail': 'Telegram user is not linked.'}, status=status.HTTP_404_NOT_FOUND)
+
+        notifications = (
+            Notification.objects.filter(
+                telegram_link=link,
+                status=Notification.Status.PENDING,
+                scheduled_for__gte=timezone.now(),
+            )
+            .select_related('occurrence', 'occurrence__training_session')
+            .order_by('scheduled_for')[:20]
+        )
+        telegram_link_service.touch_interaction(telegram_user_id)
+        payload = [
+            {
+                'id': notification.id,
+                'scheduled_for': notification.scheduled_for.isoformat(),
+                'status': notification.status,
+                'kind': notification.kind,
+            }
+            for notification in notifications
+        ]
+        return Response(payload, status=status.HTTP_200_OK)

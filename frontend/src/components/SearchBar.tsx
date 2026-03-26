@@ -8,7 +8,7 @@ interface SearchBarProps {
 
 const SearchBar: React.FC<SearchBarProps> = ({ searchTerm, setSearchTerm, isDarkMode }) => {
   return (
-    <div className="relative">
+    <div className="relative w-full max-w-md">
       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
         <svg
           className={`w-5 h-5 ${
@@ -26,7 +26,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ searchTerm, setSearchTerm, isDark
       </div>
       <input
         type="text"
-        placeholder="Поиск по постам, типу тренировки или никнейму"
+        placeholder="Search by post, training type, or username"
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
         className={`w-full py-2 pl-10 pr-4 rounded-full ${

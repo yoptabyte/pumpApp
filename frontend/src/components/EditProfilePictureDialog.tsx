@@ -1,17 +1,13 @@
-// src/components/EditProfilePictureDialog.tsx
-
 import React, { useState } from 'react';
 
 interface EditProfilePictureDialogProps {
   isDarkMode: boolean;
-  userData: any;
   onCancel: () => void;
   onSave: (newProfilePicture: File | null) => Promise<void>;
 }
 
 const EditProfilePictureDialog: React.FC<EditProfilePictureDialogProps> = ({
   isDarkMode,
-  userData,
   onCancel,
   onSave,
 }) => {
@@ -32,32 +28,35 @@ const EditProfilePictureDialog: React.FC<EditProfilePictureDialogProps> = ({
     if (selectedFile) {
       try {
         await onSave(selectedFile);
-        onCancel(); // Close the dialog
+        onCancel();
       } catch (err) {
-        setError('Не удалось обновить аватар. Пожалуйста, попробуйте снова.');
+        setError('Failed to update avatar. Please try again.');
       }
     } else {
-      setError('Пожалуйста, выберите изображение для аватара.');
+      setError('Please select an avatar image.');
     }
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-      <div className={`bg-white dark:bg-gray-800 p-6 rounded shadow-md w-96`}>
-        <h2 className="text-xl mb-4">Изменить аватар</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className={`w-96 rounded p-6 shadow-md ${isDarkMode ? 'bg-slate-800 text-slate-100' : 'bg-white text-slate-900'}`}>
+        <h2 className="mb-4 text-xl">Update Avatar</h2>
         {error && <p className="text-red-500 mb-2">{error}</p>}
         {preview ? (
           <img src={preview} alt="Preview" className="mb-4 w-32 h-32 object-cover rounded-full" />
         ) : (
-          <p className="mb-4">Выберите изображение для аватара.</p>
+          <p className="mb-4">Choose an image for your avatar.</p>
         )}
         <input type="file" accept="image/*" onChange={handleFileChange} className="mb-4" />
         <div className="flex justify-end">
-          <button onClick={onCancel} className="mr-2 p-2 bg-gray-300 rounded">
-            Отмена
+          <button
+            onClick={onCancel}
+            className={`mr-2 rounded p-2 ${isDarkMode ? 'bg-slate-600 hover:bg-slate-500' : 'bg-gray-300 hover:bg-gray-400'}`}
+          >
+            Cancel
           </button>
           <button onClick={handleSubmit} className="p-2 bg-blue-500 text-white rounded">
-            Сохранить
+            Save
           </button>
         </div>
       </div>

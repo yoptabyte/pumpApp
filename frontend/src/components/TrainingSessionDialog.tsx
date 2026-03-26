@@ -1,10 +1,9 @@
-// TrainingSessionDialog.tsx
-
-import React, { useState, useEffect } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { Modal, Button, Alert } from 'react-bootstrap';
 import DatePicker from 'react-datepicker';
 import { createTrainingSession, updateTrainingSession, deleteTrainingSession } from '../services/api';
 import { TrainingSession } from '../types';
+import { ThemeContext } from '../contexts/ThemeContext';
 import moment from 'moment';
 import 'react-datepicker/dist/react-datepicker.css';
 
@@ -23,6 +22,7 @@ interface TrainingSessionDialogProps {
 }
 
 const TrainingSessionDialog: React.FC<TrainingSessionDialogProps> = ({ show, onHide, initialDate, initialEvent }) => {
+  const { isDarkMode } = useContext(ThemeContext);
   const [date, setDate] = useState<Date | null>(initialDate || new Date());
   const [time, setTime] = useState<Date | null>(initialDate || new Date());
   const [isEditing, setIsEditing] = useState<boolean>(false);
@@ -35,9 +35,12 @@ const TrainingSessionDialog: React.FC<TrainingSessionDialogProps> = ({ show, onH
       setTime(initialEvent.start);
     } else {
       setIsEditing(false);
+      const defaultDate = initialDate || new Date();
+      setDate(defaultDate);
+      setTime(defaultDate);
     }
     setErrorMessage('');
-  }, [initialEvent, show]);
+  }, [initialDate, initialEvent, show]);
 
   const handleSave = async () => {
     if (date && time) {
@@ -51,7 +54,7 @@ const TrainingSessionDialog: React.FC<TrainingSessionDialogProps> = ({ show, onH
       const now = moment();
 
       if (selectedDateTime.isBefore(now)) {
-        setErrorMessage('Нельзя назначить тренировку на прошедшее время.');
+        setErrorMessage('You cannot schedule a training session in the past.');
         return;
       }
 
@@ -69,8 +72,7 @@ const TrainingSessionDialog: React.FC<TrainingSessionDialogProps> = ({ show, onH
         }
         onHide();
       } catch (error) {
-        console.error('Ошибка при сохранении тренировки:', error);
-        setErrorMessage('Произошла ошибка при сохранении тренировки. Пожалуйста, попробуйте еще раз.');
+        setErrorMessage('An error occurred while saving the training session. Please try again.');
       }
     }
   };
@@ -81,13 +83,11 @@ const TrainingSessionDialog: React.FC<TrainingSessionDialogProps> = ({ show, onH
         await deleteTrainingSession(initialEvent.id);
         onHide();
       } catch (error) {
-        console.error('Ошибка при удалении тренировки:', error);
-        setErrorMessage('Произошла ошибка при удалении тренировки. Пожалуйста, попробуйте еще раз.');
+        setErrorMessage('An error occurred while deleting the training session. Please try again.');
       }
     }
   };
 
-  // Функция для фильтрации доступного времени
   const filterPassedTime = (time: Date) => {
     const now = moment();
     const selectedDate = date ? moment(date).startOf('day') : moment().startOf('day');
@@ -100,52 +100,63 @@ const TrainingSessionDialog: React.FC<TrainingSessionDialogProps> = ({ show, onH
   };
 
   return (
-    <Modal show={show} onHide={onHide}>
-      <Modal.Header closeButton>
-        <Modal.Title>{isEditing ? 'Редактировать тренировку' : 'Создать тренировку'}</Modal.Title>
+    <Modal
+      show={show}
+      onHide={onHide}
+      centered
+      contentClassName={isDarkMode ? 'bg-slate-800 text-slate-100 border border-slate-700' : ''}
+    >
+      <Modal.Header closeButton className={isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-100' : ''}>
+        <Modal.Title className={isDarkMode ? 'text-slate-100' : ''}>
+          {isEditing ? 'Edit Training Session' : 'Create Training Session'}
+        </Modal.Title>
       </Modal.Header>
-      <Modal.Body>
+      <Modal.Body className={isDarkMode ? 'bg-slate-800 text-slate-100' : ''}>
         {errorMessage && <Alert variant="danger">{errorMessage}</Alert>}
         <div className="mb-3">
-          <label>Дата:</label>
+          <label className={isDarkMode ? 'text-slate-200' : ''}>Date:</label>
           <DatePicker
             selected={date}
             onChange={(selectedDate: Date | null) => {
               setDate(selectedDate);
             }}
             dateFormat="yyyy-MM-dd"
-            className="form-control"
+            className={`form-control ${isDarkMode ? 'bg-slate-700 text-slate-100 border-slate-600' : ''}`}
             minDate={new Date()}
-            placeholderText="Выберите дату"
+            placeholderText="Select a date"
           />
         </div>
         <div className="mb-3">
-          <label>Время:</label>
+          <label className={isDarkMode ? 'text-slate-200' : ''}>Time:</label>
           <DatePicker
             selected={time}
             onChange={(selectedTime: Date | null) => setTime(selectedTime)}
             showTimeSelect
             showTimeSelectOnly
             timeIntervals={15}
-            timeCaption="Время"
+            timeCaption="Time"
             dateFormat="HH:mm"
-            className="form-control"
+            className={`form-control ${isDarkMode ? 'bg-slate-700 text-slate-100 border-slate-600' : ''}`}
             filterTime={filterPassedTime}
-            placeholderText="Выберите время"
+            placeholderText="Select time"
           />
         </div>
       </Modal.Body>
-      <Modal.Footer>
+      <Modal.Footer className={isDarkMode ? 'border-slate-700 bg-slate-800' : ''}>
         {isEditing && (
-          <Button variant="danger" onClick={handleDelete}>
-            Удалить
+          <Button variant="danger" onClick={handleDelete} className="border-0">
+            Delete
           </Button>
         )}
-        <Button variant="secondary" onClick={onHide}>
-          Отмена
+        <Button
+          variant="secondary"
+          onClick={onHide}
+          className={isDarkMode ? 'border-0 bg-slate-600 hover:bg-slate-500' : ''}
+        >
+          Cancel
         </Button>
-        <Button variant="primary" onClick={handleSave}>
-          {isEditing ? 'Сохранить изменения' : 'Сохранить'}
+        <Button variant="primary" onClick={handleSave} className="border-0">
+          {isEditing ? 'Save Changes' : 'Save'}
         </Button>
       </Modal.Footer>
     </Modal>

@@ -1,26 +1,28 @@
 import React from 'react';
-import { GoogleLogin } from '@react-oauth/google';
-import axios from 'axios';
+import { CredentialResponse, GoogleLogin } from '@react-oauth/google';
+
+import config from '../config';
+import { ensureCsrfCookie, googleLogin } from '../services/api';
 
 const GoogleAuth: React.FC = () => {
-  const handleSuccess = async (credentialResponse: any) => {
+  const handleSuccess = async (credentialResponse: CredentialResponse) => {
+    if (credentialResponse.credential == null) {
+      return;
+    }
+
     try {
-      const response = await axios.post('http://localhost:8000/auth/google/login/', {
-        access_token: credentialResponse.credential,
-      });
-      console.log(response.data);
-    } catch (error) {
-      console.error('Error during Google authentication', error);
+      await ensureCsrfCookie();
+      await googleLogin(credentialResponse.credential);
+    } catch {
+      // Intentionally ignored in this standalone widget.
     }
   };
 
-  return (
-    <GoogleLogin
-      onSuccess={handleSuccess}
-      onError={() => console.log('Login Failed')}
-    />
-  );
+  if (config.googleClientId == null) {
+    return null;
+  }
+
+  return <GoogleLogin onSuccess={handleSuccess} onError={() => undefined} />;
 };
 
 export default GoogleAuth;
-

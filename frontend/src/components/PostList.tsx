@@ -1,5 +1,3 @@
-// src/components/PostList.tsx
-
 import React from 'react';
 import PostItem from './PostItem';
 import { Post } from '../types';
@@ -9,8 +7,8 @@ interface PostListProps {
   isDarkMode: boolean;
   canEdit: boolean;
   canDelete: boolean;
-  startEditing: (post: Post) => void;
-  showDeleteConfirmation: (id: number) => void;
+  startEditing?: (post: Post) => void;
+  showDeleteConfirmation?: (id: number) => void;
 }
 
 const PostList: React.FC<PostListProps> = ({
@@ -30,8 +28,10 @@ const PostList: React.FC<PostListProps> = ({
           isDarkMode={isDarkMode}
           canEdit={canEdit}
           canDelete={canDelete}
-          startEditing={() => startEditing(post)}
-          showDeleteConfirmation={() => showDeleteConfirmation(post.id)}
+          startEditing={startEditing ? () => startEditing(post) : undefined}
+          showDeleteConfirmation={
+            showDeleteConfirmation ? () => showDeleteConfirmation(post.id) : undefined
+          }
         />
       ))}
     </div>

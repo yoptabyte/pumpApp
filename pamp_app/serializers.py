@@ -1,17 +1,18 @@
-# serializers.py
-from django.contrib.auth.models import User
-from rest_framework import serializers
-from .models import Post, Profile, PostImage, PostVideo, TrainingSession
+from __future__ import annotations
+
+from typing import cast
 
 from allauth.socialaccount.helpers import complete_social_login
+from allauth.socialaccount.models import SocialApp, SocialLogin, SocialToken
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
-from allauth.socialaccount.models import SocialLogin, SocialToken, SocialApp
-#from django.conf import settings
-#from dj_rest_auth.registration.serializers import SocialLoginSerializer
-#import traceback
+from django.contrib.auth.models import User
+from rest_framework import serializers
+
+from .models import Post, PostImage, PostVideo, Profile, TrainingSession
+from .services import PostMediaService, PostMediaValidationError
 
 
-#Login
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -26,19 +27,27 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ['username', 'email', 'password', 'password2']
 
-    def validate(self, attrs):
-        if attrs['password'] != attrs['password2']:
-            raise serializers.ValidationError({"password": "Пароли не совпадают."})
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        if attrs.get('password') != attrs.get('password2'):
+            raise serializers.ValidationError({'password': 'Passwords do not match.'})
+
+        username = cast(str, attrs.get('username'))
+        email = cast(str, attrs.get('email'))
+
+        if User.objects.filter(username=username).exists():
+            raise serializers.ValidationError({'username': 'A user with this username already exists.'})
+
+        if User.objects.filter(email=email).exists():
+            raise serializers.ValidationError({'email': 'A user with this email already exists.'})
+
         return attrs
 
-    def create(self, validated_data):
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data['email'],
-            password=validated_data['password']
+    def create(self, validated_data: dict[str, object]) -> User:
+        return User.objects.create_user(
+            username=cast(str, validated_data['username']),
+            email=cast(str, validated_data['email']),
+            password=cast(str, validated_data['password']),
         )
-        Profile.objects.create(user=user)
-        return user
 
 
 class LoginSerializer(serializers.Serializer):
@@ -46,31 +55,22 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, style={'input_type': 'password'})
 
 
-
-#Profile
 class ProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
-    user = UserSerializer(read_only=True)  # Сделать user только для чтения
+    user = UserSerializer(read_only=True)
 
     class Meta:
         model = Profile
         fields = ['id', 'user', 'username', 'avatar']
 
-
-
-    def update(self, instance, validated_data):
-        avatar = validated_data.get('avatar', None)
-        if avatar == '':
-            if instance.avatar:
+    def update(self, instance: Profile, validated_data: dict[str, object]) -> Profile:
+        if 'avatar' in validated_data:
+            avatar = validated_data['avatar']
+            if instance.avatar and (not avatar or avatar != instance.avatar):
                 instance.avatar.delete(save=False)
-            instance.avatar = None
-        elif avatar:
-            if instance.avatar:
-                instance.avatar.delete(save=False)
-            instance.avatar = avatar
-        instance.save()
+            instance.avatar = cast(object | None, avatar) or None
+        instance.save(update_fields=['avatar'] if 'avatar' in validated_data else None)
         return instance
-
 
 
 class PostImageSerializer(serializers.ModelSerializer):
@@ -78,9 +78,9 @@ class PostImageSerializer(serializers.ModelSerializer):
         model = PostImage
         fields = ['id', 'image', 'image_url']
 
-    def validate(self, data):
+    def validate(self, data: dict[str, object]) -> dict[str, object]:
         if not data.get('image') and not data.get('image_url'):
-            raise serializers.ValidationError("Either image file or image URL must be provided.")
+            raise serializers.ValidationError('Either image file or image URL must be provided.')
         return data
 
 
@@ -89,137 +89,82 @@ class PostVideoSerializer(serializers.ModelSerializer):
         model = PostVideo
         fields = ['id', 'video', 'video_url']
 
-    def validate(self, data):
+    def validate(self, data: dict[str, object]) -> dict[str, object]:
         if not data.get('video') and not data.get('video_url'):
-            raise serializers.ValidationError("Either video file or video URL must be provided.")
+            raise serializers.ValidationError('Either video file or video URL must be provided.')
         return data
 
 
-
 class TrainingSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = TrainingSession
-        fields = ['id', 'date', 'time', 'recurrence', 'days_of_week']
-
-    def create(self, validated_data):
-        profile = self.context['request'].user.profile
-        return TrainingSession.objects.create(profile=profile, **validated_data)
-
-
-class TrainingSessionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = TrainingSession
-        fields = ['id', 'date', 'time', 'recurrence', 'days_of_week', 'profile']
+        fields = ['id', 'date', 'time', 'timezone', 'recurrence', 'days_of_week', 'profile']
         read_only_fields = ('profile',)
 
 
-
-
 class PostSerializer(serializers.ModelSerializer):
-    images = PostImageSerializer(many=True, required=False)
-    videos = PostVideoSerializer(many=True, required=False)
+    images = PostImageSerializer(many=True, read_only=True)
+    videos = PostVideoSerializer(many=True, read_only=True)
     profile = ProfileSerializer(read_only=True)
 
     class Meta:
         model = Post
         fields = [
-            'id', 'title', 'images', 'videos', 
-            'training_type', 'description', 'views', 
-            'created_at', 'updated_at', 'profile'
+            'id',
+            'title',
+            'images',
+            'videos',
+            'training_type',
+            'description',
+            'views',
+            'created_at',
+            'updated_at',
+            'profile',
         ]
+        read_only_fields = ['views', 'created_at', 'updated_at', 'profile']
 
-    def create(self, validated_data):
-        images_data = self.context['request'].FILES.getlist('images')
-        images_url_data = self.context['request'].data.getlist('image_urls')
-        videos_data = self.context['request'].FILES.getlist('videos')
-        videos_url_data = self.context['request'].data.getlist('video_urls')
-
-        # Remove 'profile' from validated_data as it's handled by the view
-        profile = validated_data.pop('profile')
-
+    def create(self, validated_data: dict[str, object]) -> Post:
+        request = self.context['request']
+        profile = cast(Profile, validated_data.pop('profile'))
         post = Post.objects.create(profile=profile, **validated_data)
-
-        for image_data in images_data:
-            PostImage.objects.create(post=post, image=image_data)
-
-        for image_url in images_url_data:
-            PostImage.objects.create(post=post, image_url=image_url)
-
-        for video_data in videos_data:
-            PostVideo.objects.create(post=post, video=video_data)
-
-        for video_url in videos_url_data:
-            PostVideo.objects.create(post=post, video_url=video_url)
-
+        try:
+            PostMediaService.sync(post, request)
+        except PostMediaValidationError as exc:
+            raise serializers.ValidationError({'media': str(exc)}) from exc
         return post
 
-
-
-    def update(self, instance, validated_data):
-        images_data = self.context['request'].FILES.getlist('images')
-        images_url_data = self.context['request'].data.getlist('image_urls')
-        videos_data = self.context['request'].FILES.getlist('videos')
-        videos_url_data = self.context['request'].data.getlist('video_urls')
-
-        existing_image_ids = self.context['request'].data.getlist('existing_images')
-        existing_video_ids = self.context['request'].data.getlist('existing_videos')
-
-        instance.title = validated_data.get('title', instance.title)
-        instance.training_type = validated_data.get('training_type', instance.training_type)
-        instance.description = validated_data.get('description', instance.description)
+    def update(self, instance: Post, validated_data: dict[str, object]) -> Post:
+        request = self.context['request']
+        instance.title = cast(str, validated_data.get('title', instance.title))
+        instance.training_type = cast(str, validated_data.get('training_type', instance.training_type))
+        instance.description = cast(str, validated_data.get('description', instance.description))
         instance.save()
-
-        if existing_image_ids:
-            instance.images.exclude(id__in=existing_image_ids).delete()
-        else:
-            instance.images.all().delete()
-
-        for image_data in images_data:
-            PostImage.objects.create(post=instance, image=image_data)
-
-        for image_url in images_url_data:
-            PostImage.objects.create(post=instance, image_url=image_url)
-
-        if existing_video_ids:
-            instance.videos.exclude(id__in=existing_video_ids).delete()
-        else:
-            instance.videos.all().delete()
-
-        for video_data in videos_data:
-            PostVideo.objects.create(post=instance, video=video_data)
-
-        for video_url in videos_url_data:
-            PostVideo.objects.create(post=instance, video_url=video_url)
-
+        try:
+            PostMediaService.sync(instance, request)
+        except PostMediaValidationError as exc:
+            raise serializers.ValidationError({'media': str(exc)}) from exc
         return instance
 
-
-
-    def to_representation(self, instance):
+    def to_representation(self, instance: Post) -> dict[str, object]:
         representation = super().to_representation(instance)
         request = self.context.get('request')
-
-        if request and instance.profile.user == request.user:
-            # Omit 'profile' fields
+        if request and request.user.is_authenticated and instance.profile.user_id == request.user.id:
             representation.pop('profile', None)
-            # Alternatively, you can set them to None or some placeholder
-            # representation['profile'] = None
-
         return representation
 
 
 class GoogleLoginSerializer(serializers.Serializer):
     id_token = serializers.CharField(required=True, allow_blank=False)
 
-    def validate(self, attrs):
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
         request = self.context['request']
-        id_token = attrs.get('id_token')
+        id_token = cast(str, attrs.get('id_token'))
         adapter = GoogleOAuth2Adapter(request)
- 
+
         try:
             app = SocialApp.objects.get(provider=adapter.provider_id)
-        except SocialApp.DoesNotExist:
-            raise serializers.ValidationError('SocialApp for Google provider is not configured.')
+        except SocialApp.DoesNotExist as exc:
+            raise serializers.ValidationError('SocialApp for Google provider is not configured.') from exc
 
         token = SocialToken(app=app, token=id_token)
 
@@ -227,22 +172,13 @@ class GoogleLoginSerializer(serializers.Serializer):
             login = adapter.complete_login(request, app, token, response={'id_token': id_token})
             login.token = token
             login.state = SocialLogin.state_from_request(request)
-
             complete_social_login(request, login)
-
             if not login.user.pk:
                 login.user.save()
-
             if not login.is_existing:
                 login.save(request, connect=True)
-
-        except Exception as e:
-            import traceback
-            traceback_str = ''.join(traceback.format_tb(e.__traceback__))
-            raise serializers.ValidationError({
-                'detail': f'Failed to login with Google: {str(e)}',
-                'traceback': traceback_str
-            })
+        except Exception as exc:
+            raise serializers.ValidationError({'detail': 'Failed to login with Google.'}) from exc
 
         attrs['user'] = login.user
         return attrs

@@ -1,89 +1,65 @@
-// src/contexts/AuthContext.tsx
-
-import React, { createContext, useState, ReactNode, useEffect } from 'react';
-import { api, refreshToken as refreshTokenAPI } from '../services/api';
-
-interface User {
-  id: number;
-  username: string;
-  email: string;
-  avatar: string | null;
-}
+import React, { createContext, useState, ReactNode, useEffect, useCallback, useMemo } from 'react';
+import { ensureCsrfCookie, getProfile, logoutSession } from '../services/api';
+import { AuthUser } from '../types';
 
 interface AuthContextType {
-  user: User | null;
-  accessToken: string | null;
-  refreshToken: string | null;
-  login: (access: string, refresh: string, user: User) => void;
-  logout: () => void;
+  user: AuthUser | null;
+  isLoading: boolean;
+  login: (user: AuthUser) => void;
+  logout: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType>({
   user: null,
-  accessToken: null,
-  refreshToken: null,
+  isLoading: true,
   login: () => {},
-  logout: () => {},
+  logout: async () => {},
 });
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [refreshTokenState, setRefreshTokenState] = useState<string | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const login = (access: string, refresh: string, userData: User) => {
-    setAccessToken(access);
-    setRefreshTokenState(refresh);
+  const login = useCallback((userData: AuthUser) => {
     setUser(userData);
-    localStorage.setItem('accessToken', access);
-    localStorage.setItem('refreshToken', refresh);
-    localStorage.setItem('user', JSON.stringify(userData));
-  };
+  }, []);
 
-  const logout = () => {
-    setAccessToken(null);
-    setRefreshTokenState(null);
-    setUser(null);
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
-  };
-
-  // Initialize state from localStorage on app load
-  useEffect(() => {
-    const storedAccessToken = localStorage.getItem('accessToken');
-    const storedRefreshToken = localStorage.getItem('refreshToken');
-    const storedUser = localStorage.getItem('user');
-
-    if (storedAccessToken && storedRefreshToken && storedUser) {
-      setAccessToken(storedAccessToken);
-      setRefreshTokenState(storedRefreshToken);
-      setUser(JSON.parse(storedUser));
+  const logout = useCallback(async () => {
+    try {
+      await ensureCsrfCookie();
+      await logoutSession();
+    } catch {
+      // Intentionally ignored: local session state should still be cleared.
+    } finally {
+      setUser(null);
     }
   }, []);
 
-  // Refresh the access token periodically
   useEffect(() => {
-    const interval = setInterval(async () => {
-      if (refreshTokenState) {
-        try {
-          const response = await refreshTokenAPI(refreshTokenState);
-          const newAccess = response.data.access;
-          setAccessToken(newAccess);
-          localStorage.setItem('accessToken', newAccess);
-        } catch (err) {
-          console.error('Не удалось обновить токен:', err);
-          logout();
-        }
+    const bootstrapSession = async () => {
+      try {
+        await ensureCsrfCookie();
+        const response = await getProfile();
+        setUser(response.data.user);
+      } catch {
+        setUser(null);
+      } finally {
+        setIsLoading(false);
       }
-    }, 15 * 60 * 1000); // Refresh every 15 minutes
+    };
 
-    return () => clearInterval(interval);
-  }, [refreshTokenState]);
+    bootstrapSession();
+  }, []);
 
-  return (
-    <AuthContext.Provider value={{ user, accessToken, refreshToken: refreshTokenState, login, logout }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      user,
+      isLoading,
+      login,
+      logout,
+    }),
+    [isLoading, login, logout, user]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
